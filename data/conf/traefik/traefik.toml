@@ -1,0 +1,19 @@
+[log]
+  level = "ERROR"
+
+[providers.docker]
+  exposedByDefault = false
+  endpoint = "tcp://dockerproxy:2375"
+  network = "traefik"
+
+[entryPoints]
+  [entryPoints.web]
+    address = ":80"
+  [entryPoints.web-secure]
+    address = ":443"
+
+[certificatesResolvers]
+  [certificatesResolvers.default.acme]
+    email = "my@email.address"
+    storage = "acme.json"
+    [certificatesResolvers.default.acme.tlsChallenge]

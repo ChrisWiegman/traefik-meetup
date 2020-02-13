@@ -1,0 +1,182 @@
+version: "3"
+
+networks:
+  default:
+    driver: bridge
+  traefik:
+    internal: true
+
+services:
+  watchtower:
+    command: --label-enable --cleanup --interval 300
+    image: containrrr/watchtower
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    network_mode: none
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  dockerproxy:
+    depends_on:
+      - watchtower
+    environment:
+      CONTAINERS: 1
+    image: tecnativa/docker-socket-proxy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - traefik
+    ports:
+      - 2375
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+  traefik:
+    depends_on:
+      - dockerproxy
+      - watchtower
+    image: traefik:2.1
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+      - traefik
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    volumes:
+      - ./data/conf/traefik/acme.json:/acme.json
+      - ./data/conf/traefik/traefik.toml:/traefik.toml
+      - ./data/volumes/traefik/tmp:/tmp
+
+  mariadb:
+    depends_on:
+      - watchtower
+    env_file: .mariadb.env
+    image: mariadb:10
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+    ports:
+      - 3306:3306
+    restart: always
+    volumes:
+      - ./data/volumes/mariadb:/var/lib/mysql
+
+  redis:
+    depends_on:
+      - watchtower
+    image: redis:5
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+    restart: always
+    volumes:
+      - ./data/volumes/redis:/data
+
+  freshrss:
+    depends_on:
+      - mariadb
+      - traefik
+      - watchtower
+    env_file: .freshrss.env
+    image: freshrss/freshrss
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.freshrss-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.freshrss-http.entrypoints=web"
+      - "traefik.http.routers.freshrss-http.rule=Host(`my.freshrss.url`)"
+      - "traefik.http.routers.freshrss-http.middlewares=freshrss-https@docker"
+      - "traefik.http.routers.freshrss.entrypoints=web-secure"
+      - "traefik.http.routers.freshrss.rule=Host(`my.freshrss.url`)"
+      - "traefik.http.routers.freshrss.tls=true"
+      - "traefik.http.routers.freshrss.tls.certresolver=default"
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+    restart: always
+    volumes:
+      - ./data/volumes/freshrss:/var/www/FreshRSS/data
+
+  nextcloud:
+    depends_on:
+      - mariadb
+      - redis
+      - traefik
+      - watchtower
+    image: nextcloud:18
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.nextcloud-caldav.redirectregex.permanent=true"
+      - "traefik.http.middlewares.nextcloud-caldav.redirectregex.regex=^https://(.*)/.well-known/(card|cal)dav"
+      - "traefik.http.middlewares.nextcloud-caldav.redirectregex.replacement=https://$${1}/remote.php/dav/"
+      - "traefik.http.middlewares.nextcloud-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.nextcloud-http.entrypoints=web"
+      - "traefik.http.routers.nextcloud-http.rule=Host(`my.nextcloud.url`)"
+      - "traefik.http.routers.nextcloud-http.middlewares=nextcloud-https@docker"
+      - "traefik.http.routers.nextcloud.entrypoints=web-secure"
+      - "traefik.http.routers.nextcloud.rule=Host(`my.nextcloud.url`)"
+      - "traefik.http.routers.nextcloud.middlewares=nextcloud-caldav@docker"
+      - "traefik.http.routers.nextcloud.tls=true"
+      - "traefik.http.routers.nextcloud.tls.certresolver=default"
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+    restart: always
+    volumes:
+      - ./data/volumes/nextcloud/html:/var/www/html
+
+  wallabag:
+    depends_on:
+      - mariadb
+      - redis
+      - traefik
+      - watchtower
+    env_file: .wallabag.env
+    image: wallabag/wallabag:2.3.8
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.wallabag-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.wallabag-http.entrypoints=web"
+      - "traefik.http.routers.wallabag-http.rule=Host(`my.wallabag.url`)"
+      - "traefik.http.routers.wallabag-http.middlewares=wallabag-https@docker"
+      - "traefik.http.routers.wallabag.entrypoints=web-secure"
+      - "traefik.http.routers.wallabag.rule=Host(`my.wallabag.url`)"
+      - "traefik.http.routers.wallabag.tls=true"
+      - "traefik.http.routers.wallabag.tls.certresolver=default"
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+    restart: always
+    volumes:
+      - ./data/volumes/wallabag/images:/var/www/wallabag/web/assets/images
+      - ./data/volumes/wallabag/data:/var/www/wallabag/data
+
+  yourls:
+    depends_on:
+      - mariadb
+      - traefik
+      - watchtower
+    env_file: .yourls.env
+    image: yourls:1.7
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.yourls-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.yourls-http.entrypoints=web"
+      - "traefik.http.routers.yourls-http.rule=Host(`my.yourls.url`)"
+      - "traefik.http.routers.yourls-http.middlewares=yourls-https@docker"
+      - "traefik.http.routers.yourls.entrypoints=web-secure"
+      - "traefik.http.routers.yourls.rule=Host(`my.yourls.url`)"
+      - "traefik.http.routers.yourls.tls=true"
+      - "traefik.http.routers.yourls.tls.certresolver=default"
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - default
+    restart: always
+    volumes:
+      - ./data/conf/yourls/plugins:/var/www/html/user/plugins
+      - ./data/volumes/yourls/html:/var/www/html

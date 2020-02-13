@@ -1,0 +1,3 @@
+volumes/
+data/conf/traefik/acme.json
+*.env
